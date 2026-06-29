@@ -20,7 +20,7 @@ pipeline {
         stage('Push') {
             steps {
                 withCredentials([usernamePassword(
-                    credentialsId: 'docker-registry',
+                    credentialsId: 'devop-bot',
                     usernameVariable: 'USER',
                     passwordVariable: 'PASS'
                 )]) {
