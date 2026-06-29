@@ -1,48 +1,131 @@
 pipeline {
+
     agent any
 
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(
+            numToKeepStr: '20',
+            artifactNumToKeepStr: '10'
+        ))
+    }
+
     environment {
-        REGISTRY = "registry-vs.m-society.go.th"
-        IMAGE_NAME = "${REGISTRY}/kitsune-cop/test_html"
-        TAG = "${GIT_COMMIT.take(8)}"
-        KUBECONFIG = "/var/lib/jenkins/.kube/config"
-        NAMESPACE = "test-demo"
+        REGISTRY      = "registry-vs.m-society.go.th"
+        PROJECT       = "kitsune-cop"
+        APP_NAME      = "test_html"
+
+        IMAGE_NAME    = "${REGISTRY}/${PROJECT}/${APP_NAME}"
+        IMAGE_TAG     = "${env.GIT_COMMIT?.take(8) ?: env.BUILD_NUMBER}"
+
+        NAMESPACE     = "test-demo"
+        DEPLOYMENT    = "html-demo"
+        CONTAINER     = "nginx"
+
+        KUBECONFIG    = "/var/lib/jenkins/.kube/config"
     }
 
     stages {
 
-        stage('Build') {
+        stage('Checkout') {
             steps {
-                sh "docker build -t ${IMAGE_NAME}:${TAG} ."
+                checkout scm
             }
         }
 
-        stage('Push') {
+        stage('Build Docker Image') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'devop-bot',
-                    usernameVariable: 'USER',
-                    passwordVariable: 'PASS'
-                )]) {
-                    sh """
-                        echo \$PASS | docker login ${REGISTRY} \
-                        -u \$USER --password-stdin
+                sh '''
+                    docker build \
+                        -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                        -t ${IMAGE_NAME}:latest .
+                '''
+            }
+        }
 
-                        docker push ${IMAGE_NAME}:${TAG}
-                    """
+        stage('Login Registry') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'docker-registry',
+                        usernameVariable: 'REGISTRY_USER',
+                        passwordVariable: 'REGISTRY_PASS'
+                    )
+                ]) {
+
+                    sh '''
+                        echo "$REGISTRY_PASS" | docker login ${REGISTRY} \
+                            -u "$REGISTRY_USER" \
+                            --password-stdin
+                    '''
                 }
             }
         }
 
-        stage('Deploy') {
+        stage('Push Image') {
             steps {
-                sh """
-                    kubectl -n ${NAMESPACE} set image deployment/html-demo \
-                        nginx=${IMAGE_NAME}:${TAG}
-
-                    kubectl -n ${NAMESPACE} rollout status deployment/html-demo
-                """
+                sh '''
+                    docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                    docker push ${IMAGE_NAME}:latest
+                '''
             }
+        }
+
+        stage('Deploy Kubernetes') {
+            steps {
+                sh '''
+                    export KUBECONFIG=${KUBECONFIG}
+
+                    kubectl apply -f deployment.yml
+                    kubectl apply -f service.yml
+                    kubectl apply -f ingress.yml
+
+                    kubectl -n ${NAMESPACE} set image deployment/${DEPLOYMENT} \
+                        ${CONTAINER}=${IMAGE_NAME}:${IMAGE_TAG}
+
+                    kubectl -n ${NAMESPACE} rollout status deployment/${DEPLOYMENT} --timeout=300s
+                '''
+            }
+        }
+
+        stage('Verify') {
+            steps {
+                sh '''
+                    export KUBECONFIG=${KUBECONFIG}
+
+                    kubectl -n ${NAMESPACE} get deployment
+                    kubectl -n ${NAMESPACE} get pods -o wide
+                    kubectl -n ${NAMESPACE} get svc
+                    kubectl -n ${NAMESPACE} get ingress
+                '''
+            }
+        }
+    }
+
+    post {
+
+        always {
+
+            sh '''
+                docker logout ${REGISTRY} || true
+                docker image prune -f || true
+            '''
+
+            cleanWs()
+        }
+
+        success {
+            echo "======================================"
+            echo " Deploy Success"
+            echo " Image : ${IMAGE_NAME}:${IMAGE_TAG}"
+            echo "======================================"
+        }
+
+        failure {
+            echo "======================================"
+            echo " Deploy Failed"
+            echo "======================================"
         }
     }
 }
