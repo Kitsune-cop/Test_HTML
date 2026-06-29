@@ -2,12 +2,25 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: html-demo
+  namespace: test-demo
+  labels:
+    app: html-demo
+
 spec:
   replicas: 2
+
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 120
 
   selector:
     matchLabels:
       app: html-demo
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
 
   template:
     metadata:
@@ -15,23 +28,52 @@ spec:
         app: html-demo
 
     spec:
-      containers:
-      - name: nginx
-        image: registry.example.com/demo/html-demo:latest
-        imagePullPolicy: Always
+      terminationGracePeriodSeconds: 30
 
-        ports:
-        - containerPort: 80
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: html-service
-spec:
-  selector:
-    app: html-demo
-  ports:
-    - port: 80
-      targetPort: 80
-      nodePort: 30080
-  type: NodePort
+      imagePullSecrets:
+        - name: gitlab-registry
+
+      containers:
+        - name: nginx
+          image: registry-vs.m-society.go.th:5050/kitsune-cop/test_html:latest
+          imagePullPolicy: Always
+
+          ports:
+            - containerPort: 80
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          startupProbe:
+            httpGet:
+              path: /
+              port: 80
+            failureThreshold: 10
+            periodSeconds: 5
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: TZ
+              value: "Asia/Bangkok"

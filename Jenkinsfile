@@ -1,68 +1,48 @@
 pipeline {
-
     agent any
 
     environment {
-        IMAGE_NAME = "registry.example.com/demo/html-demo"
-        TAG = "${BUILD_NUMBER}"
+        REGISTRY = "registry-vs.m-society.go.th:5050"
+        IMAGE_NAME = "${REGISTRY}/kitsune-cop/test_html"
+        TAG = "${GIT_COMMIT.take(8)}"
+        KUBECONFIG = "/var/lib/jenkins/.kube/config"
+        NAMESPACE = "test-demo"
     }
 
     stages {
 
-        stage('Checkout') {
+        stage('Build') {
             steps {
-                git branch: 'main',
-                    url: 'https://git.example.com/demo/html-demo.git'
+                sh "docker build -t ${IMAGE_NAME}:${TAG} ."
             }
         }
 
-        stage('Build Image') {
+        stage('Push') {
             steps {
-                sh """
-                docker build -t ${IMAGE_NAME}:${TAG} .
-                docker tag ${IMAGE_NAME}:${TAG} ${IMAGE_NAME}:latest
-                """
-            }
-        }
-
-        stage('Login Registry') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'docker-registry',
-                        usernameVariable: 'USERNAME',
-                        passwordVariable: 'PASSWORD'
-                    )
-                ]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-registry',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
                     sh """
-                    echo \$PASSWORD | docker login registry.example.com \
-                        -u \$USERNAME \
-                        --password-stdin
+                        echo \$PASS | docker login ${REGISTRY} \
+                        -u \$USER --password-stdin
+
+                        docker push ${IMAGE_NAME}:${TAG}
                     """
                 }
-            }
-        }
-
-        stage('Push Image') {
-            steps {
-                sh """
-                docker push ${IMAGE_NAME}:${TAG}
-                docker push ${IMAGE_NAME}:latest
-                """
             }
         }
 
         stage('Deploy') {
             steps {
                 sh """
-                kubectl set image deployment/html-demo \
-                    nginx=${IMAGE_NAME}:${TAG}
+                    kubectl -n ${NAMESPACE} set image deployment/html-demo \
+                        nginx=${IMAGE_NAME}:${TAG}
 
-                kubectl rollout status deployment/html-demo
+                    kubectl -n ${NAMESPACE} rollout status deployment/html-demo
                 """
             }
         }
-
     }
-
 }
