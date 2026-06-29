@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        REGISTRY = "registry-vs.m-society.go.th:5050"
+        REGISTRY = "registry-vs.m-society.go.th"
         IMAGE_NAME = "${REGISTRY}/kitsune-cop/test_html"
         TAG = "${GIT_COMMIT.take(8)}"
         KUBECONFIG = "/var/lib/jenkins/.kube/config"
