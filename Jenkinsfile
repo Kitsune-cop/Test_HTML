@@ -48,7 +48,7 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'docker-registry',
+                        credentialsId: 'devop-bot',
                         usernameVariable: 'REGISTRY_USER',
                         passwordVariable: 'REGISTRY_PASS'
                     )
